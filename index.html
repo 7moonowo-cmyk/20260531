@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>跨裝置雲端攝影機</title>
+    <!-- 引入 PeerJS 與 QRCode.js 外掛 -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        background-color: #1a1a1a;
+        color: white;
+        font-family: sans-serif;
+      }
+      #status {
+        margin-bottom: 20px;
+        font-size: 1.2rem;
+        color: #00ff00;
+      }
+      #setup-area {
+        text-align: center;
+      }
+      #qrcode-container {
+        display: inline-block;
+        background: white;
+        padding: 15px;
+        border-radius: 10px;
+      }
+      /* 影片容器：確保等比例且不超出螢幕 */
+      .video-container {
+        width: 90vw;
+        height: 70vh;
+        display: none;
+        position: relative;
+        background: #000;
+        border: 2px solid #444;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      video {
+        width: 100%;
+        height: 100%;
+        /* 等比例縮放，不變形 */
+        object-fit: contain;
+        /* 處理鏡像：確保畫面是正常的（非左右相反） */
+        transform: scaleX(1);
+      }
+      p { text-align: center; max-width: 80%; }
+    </style>
+  </head>
+  <body>
+    <div id="status">正在建立連線伺服器...</div>
+
+    <div id="setup-area">
+      <div id="qrcode-container"></div>
+      <p>請用另一台裝置掃描上方 QR Code 以開啟攝影機</p>
+    </div>
+
+    <div id="video-container" class="video-container">
+      <video id="remote-video" autoplay playsinline></video>
+    </div>
+
+    <script>
+      const statusEl = document.getElementById('status');
+      const setupArea = document.getElementById('setup-area');
+      const videoContainer = document.getElementById('video-container');
+      const videoEl = document.getElementById('remote-video');
+
+      // 檢查網址是否有參數 (被掃描後會帶有 ?join=ID)
+      const urlParams = new URLSearchParams(window.location.search);
+      const joinId = urlParams.get('join');
+
+      const peer = new Peer();
+
+      peer.on('open', (id) => {
+        if (!joinId) {
+          // A 裝置：顯示 QR Code
+          statusEl.innerText = "等待攝影機加入...";
+          const hostUrl = `${window.location.origin}${window.location.pathname}?join=${id}`;
+          new QRCode(document.getElementById("qrcode-container"), {
+            text: hostUrl,
+            width: 256,
+            height: 256
+          });
+        } else {
+          // B 裝置：掃描者，請求攝影機權限
+          statusEl.innerText = "正在啟動相機...";
+          setupArea.style.display = 'none';
+          startCamera(joinId);
+        }
+      });
+
+      // A 裝置：接收到影像串流時
+      peer.on('call', (call) => {
+        call.answer(); // 接聽
+        call.on('stream', (stream) => {
+          showVideoStream(stream);
+          statusEl.innerText = "連線成功：遠端畫面播放中";
+        });
+      });
+
+      async function startCamera(targetId) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: "environment" }, // 優先使用後鏡頭
+            audio: false 
+          });
+          showVideoStream(stream);
+          peer.call(targetId, stream); // 撥打給主控端
+          statusEl.innerText = "攝影機運行中";
+        } catch (err) {
+          statusEl.innerText = "錯誤: 無法開啟攝影機 " + err.message;
+        }
+      }
+
+      function showVideoStream(stream) {
+        setupArea.style.display = 'none';
+        videoContainer.style.display = 'block';
+        videoEl.srcObject = stream;
+      }
+    </script>
+  </body>
+</html>
